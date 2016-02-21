@@ -87,6 +87,7 @@ const SimpleShell::ptentry_t SimpleShell::commands_table[] = {
     {NULL, NULL}
 };
 
+unsigned long int SimpleShell::ticks = 0;
 int SimpleShell::reset_delay_secs = 0;
 bool SimpleShell::print_wifi_stats = false;
 bool SimpleShell::wifi_active = false;
@@ -174,7 +175,10 @@ void SimpleShell::on_module_loaded()
 
 void SimpleShell::on_second_tick(void *)
 {
-    print_wifi_stats = wifi_active;
+    if (wifi_active) {
+        print_wifi_stats = true;
+        ticks++;
+    }
     // we are timing out for the reset
     if (reset_delay_secs > 0) {
         if (--reset_delay_secs == 0) {
@@ -923,11 +927,13 @@ void SimpleShell::md5sum_command( string parameters, StreamOutput *stream )
 
 void SimpleShell::print_stats()
 {
-	// [PosXYZ Speed PercentPlay Secplay ActivExt NbExt EPos1 Eflow1... nbheaters design Temp1 Target1 PWM1... fan] 
+    //timestamp
+    THEKERNEL->serial->printf("{\"D\":%ld,",ticks);
+    
 	// get position
 	float pos[3];
 	THEKERNEL->robot->get_axis_position(pos);
-	THEKERNEL->serial->printf("{\"X\":%.2f,\"Y\":%.2f,\"Z\":%.2f,",pos[0],pos[1],pos[2]);
+	THEKERNEL->serial->printf("\"X\":%.2f,\"Y\":%.2f,\"Z\":%.2f,",pos[0],pos[1],pos[2]);
 
    // get print speed in %
 	THEKERNEL->serial->printf("\"S\":%3.f,", 6000.0F / THEKERNEL->robot->get_seconds_per_minute()); 

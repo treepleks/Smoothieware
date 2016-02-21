@@ -79,7 +79,7 @@ private:
     static int reset_delay_secs;
 	 static bool wifi_active;
 	 static bool print_wifi_stats;
-	 
+	 static unsigned long int ticks;
 	 static std::vector<uint16_t> heaters;
 	 static std::vector<uint16_t> extruders;
 	 static std::vector<float> positions;
