@@ -10,6 +10,8 @@
 #include "libs/Kernel.h"
 #include "libs/nuts_bolts.h"
 #include "libs/utils.h"
+#include "SerialConsole.h"
+#include "ConfigValue.h"
 #include "libs/SerialMessage.h"
 #include "libs/StreamOutput.h"
 #include "modules/robot/Conveyor.h"
@@ -86,6 +88,13 @@ const SimpleShell::ptentry_t SimpleShell::commands_table[] = {
 };
 
 int SimpleShell::reset_delay_secs = 0;
+bool SimpleShell::print_wifi_stats = false;
+bool SimpleShell::wifi_active = false;
+std::vector<uint16_t> SimpleShell::heaters;
+std::vector<uint16_t> SimpleShell::extruders;
+std::vector<float> SimpleShell::positions;
+std::vector<float> SimpleShell::multipliers;
+
 
 // Adam Greens heap walk from http://mbed.org/forum/mbed/topic/2701/?page=4#comment-22556
 static uint32_t heapWalk(StreamOutput *stream, bool verbose)
@@ -148,18 +157,38 @@ void SimpleShell::on_module_loaded()
     this->register_for_event(ON_CONSOLE_LINE_RECEIVED);
     this->register_for_event(ON_GCODE_RECEIVED);
     this->register_for_event(ON_SECOND_TICK);
+	 this->register_for_event(ON_MAIN_LOOP);
 
     reset_delay_secs = 0;
+	 print_wifi_stats = false;
+	 
+	 wifi_active = THEKERNEL->config->value( shell_wifi_module_checksum )->by_default(false)->as_bool();
+
+	 if (wifi_active) {
+	 // get extruder controllers ids
+	 THEKERNEL->config->get_module_list( &extruders, extruder_checksum );
+	 positions.resize(extruders.size(),0.000F);
+	 multipliers.resize(extruders.size(),100.000F);
+	 }
 }
 
 void SimpleShell::on_second_tick(void *)
 {
+    print_wifi_stats = wifi_active;
     // we are timing out for the reset
     if (reset_delay_secs > 0) {
         if (--reset_delay_secs == 0) {
             system_reset(false);
         }
     }
+}
+
+void SimpleShell::on_main_loop(void *argument)
+{
+	if (print_wifi_stats) {
+		 print_wifi_stats = false;
+		 print_stats();
+	}
 }
 
 void SimpleShell::on_gcode_received(void *argument)
@@ -892,7 +921,78 @@ void SimpleShell::md5sum_command( string parameters, StreamOutput *stream )
     fclose(lp);
 }
 
+void SimpleShell::print_stats()
+{
+	// [PosXYZ Speed PercentPlay Secplay ActivExt NbExt EPos1 Eflow1... nbheaters Temp1 Target1 PWM1... fan] 
+	// get position
+	float pos[3];
+	THEKERNEL->robot->get_axis_position(pos);
+	THEKERNEL->serial->printf("[%.2f %.2f %.2f ",pos[0],pos[1],pos[2]);
 
+   // get print speed in %
+	THEKERNEL->serial->printf("%3.f ", 6000.0F / THEKERNEL->robot->get_seconds_per_minute()); 
+	
+	// get player time and %age of progress
+	void *returned_data;
+	unsigned long elapsed_time = 0;
+	unsigned int sd_pcnt_played = 0;
+	if (PublicData::get_value( player_checksum, get_progress_checksum, &returned_data)) {
+		struct pad_progress p =  *static_cast<struct pad_progress *>(returned_data);
+		elapsed_time = p.elapsed_secs;
+		sd_pcnt_played = p.percent_complete;
+		//fn = p.filename;
+	}
+	THEKERNEL->serial->printf("%u %lu ", sd_pcnt_played, elapsed_time);
+
+	// get active extruder multipliers and positions.
+	int *active_toolptr;
+	int active_tool = 0;
+	if (PublicData::get_value(tool_manager_checksum, get_active_tool_checksum, &active_toolptr))
+		for (unsigned int i=0; i<extruders.size(); i++)
+			if (*(active_toolptr) == extruders[i]) {
+				active_tool = i;
+				break;
+			}
+	THEKERNEL->serial->printf("%1u ", active_tool); 
+	THEKERNEL->serial->printf("%1u ", extruders.size());
+
+	float *rd;
+	
+	if (PublicData::get_value( extruder_checksum, (void **)&rd)) {
+		multipliers[active_tool] = *(rd+2)*100.0F;
+		positions[active_tool] = *(rd+5);
+	}
+	
+	for (unsigned int i = 0; i < extruders.size(); i++) {
+	 	THEKERNEL->serial->printf("%.2f %3.f ", positions[i], multipliers[i]);
+	}
+
+	// get temperature controllers ids
+	if (heaters.size() == 0) {
+		std::vector<struct pad_temperature> controllers;
+		if (PublicData::get_value(temperature_control_checksum, poll_controls_checksum, &controllers))
+			for (unsigned int i = 0; i < controllers.size(); i++)
+				heaters.push_back(controllers[i].id);
+	}
+
+	// collect temperatures, targets, designator, pwm
+	THEKERNEL->serial->printf("%1u ", heaters.size());
+	struct pad_temperature temp;
+	for(auto id : heaters) {
+		PublicData::get_value( temperature_control_checksum, current_temperature_checksum, id, &temp );
+		THEKERNEL->serial->printf("%s ", temp.designator.c_str());
+		THEKERNEL->serial->printf("%.1f ", temp.current_temperature);
+		THEKERNEL->serial->printf("%.1f ", temp.target_temperature);
+		THEKERNEL->serial->printf("%u ", temp.pwm);
+	}
+
+	// get fan status
+	struct pad_switch s;
+	bool fan_state = (PublicData::get_value( switch_checksum, fan_checksum, 0, &s ) ? s.state : false);
+	THEKERNEL->serial->printf("%1u", fan_state); 
+
+	THEKERNEL->serial->puts("]\n");
+}
 
 void SimpleShell::help_command( string parameters, StreamOutput *stream )
 {

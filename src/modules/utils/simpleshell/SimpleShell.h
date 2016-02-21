@@ -10,10 +10,16 @@
 #define simpleshell_h
 
 #include "Module.h"
+#include "Config.h"
+#include "ExtruderPublicAccess.h"
+#include "PlayerPublicAccess.h"
+#include <vector>
 
 #include <functional>
 #include <string>
 using std::string;
+
+#define shell_wifi_module_checksum CHECKSUM("wifi_module")
 
 class StreamOutput;
 
@@ -23,6 +29,7 @@ public:
     SimpleShell() {}
 
     void on_module_loaded();
+	 void on_main_loop(void *argument);
     void on_console_line_received( void *argument );
     void on_gcode_received(void *argument);
     void on_second_tick(void *);
@@ -49,6 +56,8 @@ private:
     static void md5sum_command( string parameters, StreamOutput *stream);
     static void grblDP_command( string parameters, StreamOutput *stream);
 
+	 static void print_stats();
+	 
     static void switch_command(string parameters, StreamOutput *stream );
     static void mem_command(string parameters, StreamOutput *stream );
 
@@ -68,6 +77,13 @@ private:
 
     static const ptentry_t commands_table[];
     static int reset_delay_secs;
+	 static bool wifi_active;
+	 static bool print_wifi_stats;
+	 
+	 static std::vector<uint16_t> heaters;
+	 static std::vector<uint16_t> extruders;
+	 static std::vector<float> positions;
+	 static std::vector<float> multipliers;
 };
 
 
