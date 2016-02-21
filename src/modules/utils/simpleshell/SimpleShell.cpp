@@ -923,14 +923,14 @@ void SimpleShell::md5sum_command( string parameters, StreamOutput *stream )
 
 void SimpleShell::print_stats()
 {
-	// [PosXYZ Speed PercentPlay Secplay ActivExt NbExt EPos1 Eflow1... nbheaters Temp1 Target1 PWM1... fan] 
+	// [PosXYZ Speed PercentPlay Secplay ActivExt NbExt EPos1 Eflow1... nbheaters design Temp1 Target1 PWM1... fan] 
 	// get position
 	float pos[3];
 	THEKERNEL->robot->get_axis_position(pos);
-	THEKERNEL->serial->printf("[%.2f %.2f %.2f ",pos[0],pos[1],pos[2]);
+	THEKERNEL->serial->printf("{\"X\":%.2f,\"Y\":%.2f,\"Z\":%.2f,",pos[0],pos[1],pos[2]);
 
    // get print speed in %
-	THEKERNEL->serial->printf("%3.f ", 6000.0F / THEKERNEL->robot->get_seconds_per_minute()); 
+	THEKERNEL->serial->printf("\"S\":%3.f,", 6000.0F / THEKERNEL->robot->get_seconds_per_minute()); 
 	
 	// get player time and %age of progress
 	void *returned_data;
@@ -942,7 +942,7 @@ void SimpleShell::print_stats()
 		sd_pcnt_played = p.percent_complete;
 		//fn = p.filename;
 	}
-	THEKERNEL->serial->printf("%u %lu ", sd_pcnt_played, elapsed_time);
+	THEKERNEL->serial->printf("\"%%\":%u,\"s\":%lu,", sd_pcnt_played, elapsed_time);
 
 	// get active extruder multipliers and positions.
 	int *active_toolptr;
@@ -953,20 +953,20 @@ void SimpleShell::print_stats()
 				active_tool = i;
 				break;
 			}
-	THEKERNEL->serial->printf("%1u ", active_tool); 
-	THEKERNEL->serial->printf("%1u ", extruders.size());
+	THEKERNEL->serial->printf("\"A\":%1u,\"E\":[", active_tool);
 
 	float *rd;
-	
 	if (PublicData::get_value( extruder_checksum, (void **)&rd)) {
 		multipliers[active_tool] = *(rd+2)*100.0F;
 		positions[active_tool] = *(rd+5);
 	}
 	
 	for (unsigned int i = 0; i < extruders.size(); i++) {
-	 	THEKERNEL->serial->printf("%.2f %3.f ", positions[i], multipliers[i]);
+	 	THEKERNEL->serial->printf("[%.2f,%3.f]", positions[i], multipliers[i]);
+        if (i < extruders.size()-1) THEKERNEL->serial->puts(",");
 	}
-
+    THEKERNEL->serial->puts("],\"H\":{");
+    
 	// get temperature controllers ids
 	if (heaters.size() == 0) {
 		std::vector<struct pad_temperature> controllers;
@@ -976,22 +976,19 @@ void SimpleShell::print_stats()
 	}
 
 	// collect temperatures, targets, designator, pwm
-	THEKERNEL->serial->printf("%1u ", heaters.size());
 	struct pad_temperature temp;
 	for(auto id : heaters) {
 		PublicData::get_value( temperature_control_checksum, current_temperature_checksum, id, &temp );
-		THEKERNEL->serial->printf("%s ", temp.designator.c_str());
-		THEKERNEL->serial->printf("%.1f ", temp.current_temperature);
-		THEKERNEL->serial->printf("%.1f ", temp.target_temperature);
-		THEKERNEL->serial->printf("%u ", temp.pwm);
+		THEKERNEL->serial->printf("\"%s\":", temp.designator.c_str());
+		THEKERNEL->serial->printf("[%.1f,", temp.current_temperature);
+		THEKERNEL->serial->printf("%.1f,", temp.target_temperature);
+		THEKERNEL->serial->printf("%u],", temp.pwm);
 	}
-
+	THEKERNEL->serial->puts("},");
 	// get fan status
 	struct pad_switch s;
 	bool fan_state = (PublicData::get_value( switch_checksum, fan_checksum, 0, &s ) ? s.state : false);
-	THEKERNEL->serial->printf("%1u", fan_state); 
-
-	THEKERNEL->serial->puts("]\n");
+	THEKERNEL->serial->printf("\"F\":%1u}\n", fan_state); 
 }
 
 void SimpleShell::help_command( string parameters, StreamOutput *stream )
@@ -1026,3 +1023,9 @@ void SimpleShell::help_command( string parameters, StreamOutput *stream )
     stream->printf("md5sum file - prints md5 sum of the given file\r\n");
 }
 
+/* Local Variables: */
+/* c-basic-offset: 4 */
+/* tab-width: 4 */
+/* indent-tabs-mode: nil */
+/* c-default-style: "k&r" */
+/* End: */
